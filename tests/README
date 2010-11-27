@@ -1,0 +1,17 @@
+# Compile to bitcode
+llvm-gcc -emit-llvm -c sum.c -o sum.bc
+
+# Compile to llvm assembly
+llvm-gcc -emit-llvm -S sum.c
+
+# Disassemble bitcode into sum.ll, which is identical to sum.s above
+llvm-dis sum.bc
+
+# We can also use clang
+clang -emit-llvm -S sum.c
+
+# Run our pass on bitcode
+opt -load ../Release/lib/P1.so -printCode sum.bc -o sum.opt
+
+# Compile bitcode to native assembly
+llc sum.opt
