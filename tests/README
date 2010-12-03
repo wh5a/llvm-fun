@@ -15,3 +15,6 @@ opt -load ../Release/lib/P1.so -printCode sum.bc -o sum.opt
 
 # Compile bitcode to native assembly
 llc sum.opt
+
+# Load our pass during codegen
+llc -f -load ../Release/lib/P1.so -regalloc=gc sum.bc  # Our pass defines a replacement register allocator
