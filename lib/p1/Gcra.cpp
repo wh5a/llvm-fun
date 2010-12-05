@@ -11,6 +11,8 @@
 //
 //===--------------------------------------------------------------------===//
 
+// An interesting discussion http://groups.google.com/group/llvm-dev/browse_thread/thread/2666b37fcde3d1c4
+
 #define DEBUG_TYPE "gcra"
 #include <map>
 #include "RDfact.h"
@@ -30,9 +32,10 @@ namespace {
   private:
     const TargetRegisterInfo *TRI;
     
-    static const bool DEBUG_LIVE = true;
-    static const bool DEBUG_RD = true;
-    static const bool PRINT_INST = false;
+    static const bool DEBUG_LIVE = false;
+    static const bool DEBUG_RD = false;
+    // LLVM can output instructions after each stage:  -print-machineinstrs
+    static const bool PRINT_INST = true;
     
     int numRegClasses;
     
@@ -71,7 +74,12 @@ namespace {
     bool runOnMachineFunction(MachineFunction &Fn) {
       
       // get pointer to regster info, which doesn't change over this fn
+      // Defined in a table, e.g. lib/Target/X86/X86RegisterInfo.td
       TRI = Fn.getTarget().getRegisterInfo();
+
+      // LLVM divides its virtual registers into one or more classes.
+      // Each class has a (not necessarily disjoint) set of physical registers to which it can be allocated.
+      numRegClasses = TRI->getNumRegClasses();
       
       // INITIALIZE FOR EACH FN
       RDfactSet.clear();
@@ -103,7 +111,9 @@ namespace {
 	     << "\n";
 	printInstructions(Fn);
       }
-      
+
+      // LLVM also comes with the analysis in lib/CodeGen/LiveVariables.cpp
+
       // STEP 2: live analysis for all registers (fill in globals
       //         liveBeforeMap and liveAfterMap for blocks, and
       //         globals insLiveBeforeMap and insLiveAfterMapfor
@@ -120,8 +130,11 @@ namespace {
       if (DEBUG_RD) {
 	printRDResults(Fn);
       }
+
+      // LLVM also has this live interval analysis
+
+      // STEP 4: 
       
-      exit(0); // prevent coredump until reg alloc is implemented
       return true;
     }
     
@@ -783,12 +796,12 @@ namespace {
       // iterate over all basic blocks
       for (MachineFunction::iterator bb = F.begin(); bb != F.end(); bb++) {
 	// iterate over instructions, printing each
-	errs() << "Basic Block " << bb->getNumber() << "\n";
+	errs() << "\nBasic Block " << bb->getNumber() << "\n";
 	for (MachineBasicBlock::iterator inIt = bb->begin(), ine = bb->end();
 	     inIt != ine; inIt++) {
 	  MachineInstr *oneI = inIt;
-	  errs() << "%" << InstrToNumMap[oneI] << "( " << oneI << "): ";
-	  errs() << *oneI << "\n";
+	  errs() << "%" << InstrToNumMap[oneI] << "(" << oneI << "): ";
+	  errs() << *oneI;
 	}
       }
     }
