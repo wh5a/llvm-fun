@@ -39,6 +39,9 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 
 using namespace llvm;
 
@@ -60,6 +63,7 @@ namespace {
     }
 
     virtual bool runOnMachineFunction(MachineFunction &mf) {
+      DenseMap<unsigned, unsigned> regMap;  // maps from virtual reg to stack slot
 
       errs() << "\"Register Allocating\" for function "
              << mf.getFunction()->getName() << "\n";      
@@ -67,6 +71,8 @@ namespace {
       // Grab pointers to the register info classes.
       MachineRegisterInfo *mri = &mf.getRegInfo();
       const TargetRegisterInfo *tri = mf.getTarget().getRegisterInfo();
+
+      const TargetInstrInfo *TII = mf.getTarget().getInstrInfo();
 
       // Iterate over the basic blocks in the machine function.
       for (MachineFunction::iterator mbbItr = mf.begin(), mbbEnd = mf.end();
@@ -83,6 +89,12 @@ namespace {
           MachineInstr &mi = *miItr;
 
           errs() << "  " << mi << "has register operands:\n";
+
+          // We employ a simple stack-based design:
+          // 1. For each instruction, always allocate physreg 27/EAX for def, and 29/EBX, 38/ECX for use.
+          // 2. Load the used virtregs from stack slot into EBP and EBX.
+          // 3. Copy EAX to a newly allocated stack slot after the instruction
+          unsigned defReg = 27, useReg = 29;
 
           // Iterate over the operands in the machine function.
           for (unsigned i = 0; i < mi.getNumOperands(); ++i) {
@@ -124,10 +136,25 @@ namespace {
                      rEnd = trc->allocation_order_end(mf);
                    rItr != rEnd; ++rItr) {
                 unsigned preg = *rItr;
-                errs() << tri->getName(preg) << " ";
+                errs() << preg << tri->getName(preg) << " ";
               }
 
               errs() << "}\n";
+
+              if (mo.isUse()) {
+                int frameIndex = regMap[reg];
+                TII->loadRegFromStackSlot(mbb, mi, useReg, frameIndex, trc);
+                mo.setReg(useReg);
+                useReg = 38;  // ECX
+              }
+              else {
+                mo.setReg(defReg);
+                MachineBasicBlock::iterator nextI(mi);
+                ++nextI;
+                int frameIndex = mf.getFrameInfo()->CreateSpillStackObject(trc->getSize(), trc->getAlignment());
+                TII->storeRegToStackSlot(mbb, nextI, defReg, true, frameIndex, trc);
+                regMap[reg] = frameIndex;
+              }
             }
           }
         }
@@ -135,10 +162,6 @@ namespace {
         errs() << "\n";
       }
 
-      // We haven't done any real allocation, subsequent passes will fail.
-      // Back out disgracefully.
-      llvm_report_error("DemoRegAlloc does not actually allocate registers."
-                        "Terminating llc.");
       return false;
     }
 
