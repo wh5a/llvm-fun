@@ -27,15 +27,76 @@ typedef map<const MachineInstr *, set<unsigned>*> InstrToRegMap;
 typedef map<const MachineBasicBlock *, set<RDfact *>*> BBtoRDfactMap;
 typedef map<const MachineInstr *, set<RDfact *>*> InstrToRDfactMap;
 
+typedef map<const unsigned, set<MachineInstr *>*> RegToInstrsMap;
+
+class LiveRange {
+public:
+  RegToInstrsMap range;
+  
+  LiveRange(MachineFunction &Fn, InstrToRegMap &insLiveBeforeMap, InstrToRDfactMap &insRDbeforeMap)
+  {
+    // 1. Build initial live ranges
+    // For each CFG node D that defines variable x, the initial live range for D consists of: 
+    // ( <x>, <{D} union {N | x in N.live-before and D in N.reaching-defs-before}> ) 
+    // x in N.live-before means that x is used in N or after,
+    // D in N.reaching-defs-before means that the use of x in N really is defined by D
+    // Due to LLVM's single assignment nature, I don't think it's necessary to compute reaching defs.
+
+    // 2. Convert initial live ranges to final live ranges (collapse overlapping initial live ranges for the same variable):
+    // LLVM IR has true SSA due to phi nodes, but phi nodes have been eliminated in the lowered representation.
+    // So it's possible that x is defined twice in two branches.
+
+    // We combine the two steps into one.
+    for (MachineFunction::iterator b = Fn.begin(), e = Fn.end(); b != e; ++b)
+      for (MachineBasicBlock::iterator D = b->begin(), e = b->end(); D != e; ++D) {
+        int n = D->getNumOperands();
+        for (int j = 0; j < n; j++) {
+          MachineOperand op = D->getOperand(j);  
+          if (op.isReg() && op.getReg() && op.isDef()) {
+            unsigned x = op.getReg();
+            if (TargetRegisterInfo::isPhysicalRegister(x))
+              continue;
+
+            set<MachineInstr *> *s = range[x];
+            if (!s) {
+              s = new set<MachineInstr *>();
+              range[x] = s;
+            }
+            s->insert(D);
+            for (MachineFunction::iterator b = Fn.begin(), e = Fn.end(); b != e; ++b)
+              for (MachineBasicBlock::iterator N = b->begin(), e = b->end(); N != e; ++N)
+                if (insLiveBeforeMap[N]->count(x))
+                  s->insert(N);
+            }
+          } // end iterating operands
+      } // end iterating instructions and blocks
+  }
+
+  void debug(map<MachineInstr *, unsigned> &InstrToNumMap)
+  {
+    errs() << "\n\nLIVE RANGES\n";
+    map<const unsigned, set<MachineInstr *>*>::iterator p, e;
+    for (p = range.begin(), e = range.end(); p != e; ++p) {
+      errs() << p->first << ": {";
+      set<MachineInstr *> *s = p->second;
+      set<MachineInstr *>::iterator i = s->begin(), e = s->end();
+      for(; i != e; ++i)
+        errs() << " %" << InstrToNumMap[*i];
+      errs() << " }\n";
+    }
+  }
+};
+
 namespace {
   class Gcra : public MachineFunctionPass {
   private:
     const TargetRegisterInfo *TRI;
     
     static const bool DEBUG_LIVE = false;
-    static const bool DEBUG_RD = false;
+    static const bool DEBUG_RD = false;    
     // LLVM can output instructions after each stage:  -print-machineinstrs
     static const bool PRINT_INST = true;
+    static const bool DEBUG_RANGE = true;
     
     int numRegClasses;
     
@@ -133,7 +194,12 @@ namespace {
 
       // LLVM also has this live interval analysis
 
-      // STEP 4: 
+      // STEP 4: Compute initial and final live ranges for every definition of a register in the function.
+      LiveRange liveRange(Fn, insLiveBeforeMap, insRDbeforeMap);
+      if (DEBUG_RANGE)
+        liveRange.debug(InstrToNumMap);
+
+      // STEP 5: Build the interference graph
       
       return true;
     }

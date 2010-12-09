@@ -18,3 +18,6 @@ llc sum.opt
 
 # Load our pass during codegen
 llc -load ../Release/lib/P1.so -regalloc=gc sum.bc  # Our pass defines a replacement register allocator
+
+# phi nodes in SSA, to see them we must ask LLVM to promote memory to register:
+opt -mem2reg sum.bc -o sum.opt
