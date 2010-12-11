@@ -28,11 +28,76 @@ typedef map<const MachineBasicBlock *, set<RDfact *>*> BBtoRDfactMap;
 typedef map<const MachineInstr *, set<RDfact *>*> InstrToRDfactMap;
 
 typedef map<const unsigned, set<MachineInstr *>*> RegToInstrsMap;
+typedef map<const unsigned, set<unsigned>*> RegToRegsMap;
+
+class Graph {
+public:
+  RegToRegsMap graph;
+
+private:
+  void connect(unsigned reg1, unsigned reg2) 
+  {
+    set<unsigned> *s = graph[reg1];
+    if (!s) {
+      s = new set<unsigned>();
+      graph[reg1] = s;
+    }
+    s->insert(reg2);
+  }
+  
+  bool set_intersect(set<MachineInstr *> *S1, set<MachineInstr *> *S2) {
+    for (set<MachineInstr *>::iterator i1 = S1->begin();
+         i1 != S1->end();
+         i1++) {
+      if (S2->count(*i1))
+        return true;
+    }
+      
+    return false;
+  }
+
+public:    
+  Graph(RegToInstrsMap &range)
+  {
+    map<const unsigned, set<MachineInstr *>*>::iterator p = range.begin(), q, e = range.end();
+    for (; p != e; ++p) {
+      unsigned reg1 = p->first;
+      set<MachineInstr *> *set1 = p->second;
+      q = p;
+      ++q;
+      for (; q != e; ++q) {
+        unsigned reg2 = q->first;
+        set<MachineInstr *> *set2 = q->second;
+        if (set_intersect(set1, set2)) {
+          connect(reg1, reg2);
+          connect(reg2, reg1);
+        }
+      }
+    }
+  }
+
+  void debug()
+  {
+    errs() << "\n\nINTERFERENCE GRAPH\n";
+    map<const unsigned, set<unsigned>*>::iterator p, e;
+    for (p = graph.begin(), e = graph.end(); p != e; ++p) {
+      errs() << p->first << ": {";
+      set<unsigned> *s = p->second;
+      set<unsigned>::iterator i = s->begin(), e = s->end();
+      for(; i != e; ++i)
+        errs() << " " << *i;
+      errs() << " }\n";
+    }
+  }
+};
 
 class LiveRange {
 public:
   RegToInstrsMap range;
-  
+
+  // TODO: Physical registers don't obey the single assignment rule, violating the assumptions we made below!
+  // We pretend that we don't need to worry about them. Therefore we don't support inline assemblies.
+  // We assume caller-save general-purpose except for EAX.
   LiveRange(MachineFunction &Fn, InstrToRegMap &insLiveBeforeMap, InstrToRDfactMap &insRDbeforeMap)
   {
     // 1. Build initial live ranges
@@ -97,6 +162,7 @@ namespace {
     // LLVM can output instructions after each stage:  -print-machineinstrs
     static const bool PRINT_INST = true;
     static const bool DEBUG_RANGE = true;
+    static const bool DEBUG_GRAPH = true;
     
     int numRegClasses;
     
@@ -200,6 +266,10 @@ namespace {
         liveRange.debug(InstrToNumMap);
 
       // STEP 5: Build the interference graph
+      // FIXME: Ignored physical registers and alias registers. Assumed all registers belong to GR32 class.
+      Graph graph(liveRange.range);
+      if (DEBUG_GRAPH)
+        graph.debug();
       
       return true;
     }

@@ -88,7 +88,7 @@ namespace {
 
           MachineInstr &mi = *miItr;
 
-          errs() << "  " << mi << "has register operands:\n";
+          errs() << "*  " << mi;
 
           // We employ a simple stack-based design:
           // 1. For each instruction, always allocate physreg 27/EAX for def, and 29/EBX, 38/ECX for use.
@@ -110,6 +110,11 @@ namespace {
             if (mo.getReg() == 0)
               continue;
 
+            if (mo.isUse())
+              errs() << "    U  ";
+            else
+              errs() << "    D  ";
+
             // Grab the register number.
             unsigned reg = mo.getReg();
 
@@ -119,14 +124,14 @@ namespace {
               // Note we query TargetRegisterInfo for physregs.
               const TargetRegisterClass *trc =
                 tri->getPhysicalRegisterRegClass(reg);
-              errs() << "    physical register " << tri->getName(reg)
+              errs() << "physical register " << tri->getName(reg)
                      << " with class " << trc->getName() << "\n";
             }
             else {
               // Not a physreg. Must be a virtreg.
               // Query MachineRegisterInfo for virtregs.
               const TargetRegisterClass *trc = mri->getRegClass(reg);
-              errs() << "    virtual register %reg" << reg
+              errs() << "virtual register %reg" << reg
                      << " with class " << trc->getName()
                      << " and allocable set { ";
               
